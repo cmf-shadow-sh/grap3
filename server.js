@@ -10,7 +10,6 @@ app.get('/api/grab', async (req, res) => {
     if (!url) return res.status(400).json({ error: 'URL eksik.' });
 
     try {
-        // Gerçek bir tarayıcı gibi istek atıp bot engellerini bypass ediyoruz
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -19,31 +18,57 @@ app.get('/api/grab', async (req, res) => {
         });
 
         const html = await response.text();
+        
+        // Sayfa içindeki tüm gizli veya açık video linklerini yakala
+        const urlRegex = /(https?:\/\/[^"'\s<>]+?\.(?:mp4|webm|m4v)[^"'\s<>]*)/gi;
+        const allUrls = html.match(urlRegex) || [];
+        
+        // Benzersiz linkleri filtrele
+        const uniqueUrls = [...new Set(allUrls)];
+        
+        // Kaliteleri depolayacağımız bir nesne
+        const formats = {};
 
-        // 1. Alternatif: HTML içinde doğrudan sızdırılmış temiz .mp4 linklerini avla
-        const mp4Regex = /(https?:\/\/[^"'\s<>]+?\.(?:mp4|webm|m4v)[^"'\s<>]*)/i;
-        const matchMp4 = html.match(mp4Regex);
-        if (matchMp4 && matchMp4[1]) {
-            return res.status(200).json({ videoUrl: matchMp4[1] });
+        // Yakalanan linklerin içindeki kalite ibarelerini analiz et
+        uniqueUrls.forEach(videoUrl => {
+            const lowerUrl = videoUrl.toLowerCase();
+            
+            if (lowerUrl.includes('1080') || lowerUrl.includes('1080p') || lowerUrl.includes('hd1080')) {
+                formats['1080p (Full HD)'] = videoUrl;
+            } else if (lowerUrl.includes('720') || lowerUrl.includes('720p') || lowerUrl.includes('hd720')) {
+                formats['720p (HD)'] = videoUrl;
+            } else if (lowerUrl.includes('480') || lowerUrl.includes('480p')) {
+                formats['480p (Orta)'] = videoUrl;
+            } else if (lowerUrl.includes('360') || lowerUrl.includes('360p')) {
+                formats['360p (Düşük)'] = videoUrl;
+            } else if (lowerUrl.includes('240') || lowerUrl.includes('240p')) {
+                formats['240p (Çok Düşük)'] = videoUrl;
+            }
+        });
+
+        // Eğer yukarıdaki etiketlerden hiçbirini bulamadıysa ama elimizde bir video linki varsa, 
+        // bunu "Varsayılan Kalite" olarak en başa ekle
+        if (uniqueUrls.length > 0 && Object.keys(formats).length === 0) {
+            formats['Varsayılan Standart Kalite'] = uniqueUrls[0];
         }
 
-        // 2. Alternatif: Standart HTML5 video etiketlerini kontrol et
-        const videoTagRegex = /<video[^>]*src=["']([^"']+)["']/i;
-        const matchTag = html.match(videoTagRegex);
-        if (matchTag && matchTag[1]) {
-            let streamUrl = matchTag[1];
-            if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
-            return res.status(200).json({ videoUrl: streamUrl });
+        // Eğer hiçbir şey bulunamadıysa HTML5 etiketini kontrol et
+        if (Object.keys(formats).length === 0) {
+            const videoTagRegex = /<video[^>]*src=["']([^"']+)["']/i;
+            const matchTag = html.match(videoTagRegex);
+            if (matchTag && matchTag[1]) {
+                let streamUrl = matchTag[1];
+                if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
+                formats['Varsayılan Standart Kalite'] = streamUrl;
+            }
         }
 
-        // 3. Alternatif: Büyük oynatıcıların (setVideoUrlHigh vb.) fonksiyon parametrelerini ayıkla
-        const jsParamRegex = /setVideoUrl(?:High|Low)?\s*\(\s*['"]([^'"]+)['"]\s*\)/i;
-        const matchJs = html.match(jsParamRegex);
-        if (matchJs && matchJs[1]) {
-            return res.status(200).json({ videoUrl: matchJs[1] });
+        if (Object.keys(formats).length === 0) {
+            return res.status(404).json({ error: 'Sitede seçilebilir video kalitesi bulunamadı.' });
         }
 
-        return res.status(404).json({ error: 'Bu sitenin video kaynağı doğrudan tespit edilemedi.' });
+        // Ön yüze kaliteleri nesne olarak fırlatıyoruz
+        return res.status(200).json({ formats });
 
     } catch (error) {
         return res.status(500).json({ error: error.message });
@@ -51,5 +76,5 @@ app.get('/api/grab', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda başarıyla başlatıldı.`);
+    console.log(`Kalite Destekli Motor ${PORT} portunda aktif.`);
 });
