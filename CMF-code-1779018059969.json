@@ -1,10 +1,9 @@
 {
   "name": "universal-video-grabber",
   "version": "1.0.0",
-  "description": "Render Uyumlu Kesin Video Çözücü API",
+  "description": "Video Grabber API",
   "main": "server.js",
   "scripts": {
-    "install": "node node_modules/yt-dlp-exec/scripts/install.js",
     "start": "node server.js"
   },
   "dependencies": {
