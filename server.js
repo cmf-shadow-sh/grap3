@@ -13,61 +13,67 @@ app.get('/api/grab', async (req, res) => {
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7'
             }
         });
 
         const html = await response.text();
         
-        // Sayfa içindeki tüm gizli veya açık video linklerini yakala
-        const urlRegex = /(https?:\/\/[^"'\s<>]+?\.(?:mp4|webm|m4v)[^"'\s<>]*)/gi;
+        // Sayfadaki tırnak işaretleri içindeki tüm video linklerini (mp4, webm vb.) yakala
+        const urlRegex = /https?:\/\/[^"'\s<>]+?\.(?:mp4|webm|m4v)[^"'\s<> ]*/gi;
         const allUrls = html.match(urlRegex) || [];
         
-        // Benzersiz linkleri filtrele
+        // Benzersiz linkleri temizle
         const uniqueUrls = [...new Set(allUrls)];
-        
-        // Kaliteleri depolayacağımız bir nesne
         const formats = {};
 
-        // Yakalanan linklerin içindeki kalite ibarelerini analiz et
+        // Tüm linkleri tek tek dönerek kalitelerine göre grupla (Aynı anda hepsini yakalar)
         uniqueUrls.forEach(videoUrl => {
             const lowerUrl = videoUrl.toLowerCase();
             
             if (lowerUrl.includes('1080') || lowerUrl.includes('1080p') || lowerUrl.includes('hd1080')) {
-                formats['1080p (Full HD)'] = videoUrl;
-            } else if (lowerUrl.includes('720') || lowerUrl.includes('720p') || lowerUrl.includes('hd720')) {
-                formats['720p (HD)'] = videoUrl;
-            } else if (lowerUrl.includes('480') || lowerUrl.includes('480p')) {
-                formats['480p (Orta)'] = videoUrl;
-            } else if (lowerUrl.includes('360') || lowerUrl.includes('360p')) {
-                formats['360p (Düşük)'] = videoUrl;
-            } else if (lowerUrl.includes('240') || lowerUrl.includes('240p')) {
-                formats['240p (Çok Düşük)'] = videoUrl;
+                if (!formats['1080p (Full HD)']) formats['1080p (Full HD)'] = videoUrl;
+            } 
+            if (lowerUrl.includes('720') || lowerUrl.includes('720p') || lowerUrl.includes('hd720')) {
+                if (!formats['720p (HD)']) formats['720p (HD)'] = videoUrl;
+            } 
+            if (lowerUrl.includes('480') || lowerUrl.includes('480p')) {
+                if (!formats['480p (Orta Kalite)']) formats['480p (Orta Kalite)'] = videoUrl;
+            } 
+            if (lowerUrl.includes('360') || lowerUrl.includes('360p')) {
+                if (!formats['360p (Standart)']) formats['360p (Standart)'] = videoUrl;
+            } 
+            if (lowerUrl.includes('240') || lowerUrl.includes('240p')) {
+                if (!formats['240p (Mobil Düşük)']) formats['240p (Mobil Düşük)'] = videoUrl;
             }
         });
 
-        // Eğer yukarıdaki etiketlerden hiçbirini bulamadıysa ama elimizde bir video linki varsa, 
-        // bunu "Varsayılan Kalite" olarak en başa ekle
-        if (uniqueUrls.length > 0 && Object.keys(formats).length === 0) {
-            formats['Varsayılan Standart Kalite'] = uniqueUrls[0];
+        // Eğer hiçbir kalite ibaresi bulunamadıysa ama elimizde ham video linkleri varsa listele
+        if (Object.keys(formats).length === 0 && uniqueUrls.length > 0) {
+            uniqueUrls.slice(0, 3).forEach((link, index) => {
+                formats[`Otomatik Kaynak Link - Seçenek ${index + 1}`] = link;
+            });
         }
 
-        // Eğer hiçbir şey bulunamadıysa HTML5 etiketini kontrol et
+        // Klasik HTML5 video etiketini de yedek olarak tara
         if (Object.keys(formats).length === 0) {
-            const videoTagRegex = /<video[^>]*src=["']([^"']+)["']/i;
-            const matchTag = html.match(videoTagRegex);
-            if (matchTag && matchTag[1]) {
-                let streamUrl = matchTag[1];
+            const videoTagRegex = /<video[^>]*src=["']([^"']+)["']/gi;
+            let match;
+            let tagIndex = 1;
+            while ((match = videoTagRegex.exec(html)) !== null) {
+                let streamUrl = match[1];
                 if (streamUrl.startsWith('//')) streamUrl = 'https:' + streamUrl;
-                formats['Varsayılan Standart Kalite'] = streamUrl;
+                formats[`HTML5 Video Kaynağı ${tagIndex}`] = streamUrl;
+                tagIndex++;
             }
         }
 
         if (Object.keys(formats).length === 0) {
-            return res.status(404).json({ error: 'Sitede seçilebilir video kalitesi bulunamadı.' });
+            return res.status(404).json({ error: 'Sitedeki video kaliteleri veya linkleri toplu halde ayrıştırılamadı.' });
         }
 
-        // Ön yüze kaliteleri nesne olarak fırlatıyoruz
+        // Ön yüze tüm kaliteleri bir paket halinde gönderiyoruz
         return res.status(200).json({ formats });
 
     } catch (error) {
@@ -76,5 +82,5 @@ app.get('/api/grab', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Kalite Destekli Motor ${PORT} portunda aktif.`);
+    console.log(`Toplu Kalite Listeleme Motoru Aktif.`);
 });
